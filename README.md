@@ -315,7 +315,7 @@ TaskResult       # Agent -> 主应用：status / text / data / artifacts / elaps
 
 ```ini
 [zhixue]
-mysql_password = root
+mysql_password = 你的 MySQL 密码
 mysql_database = zhixue
 tool_transport = mcp      # mcp | local
 network_transport = a2a   # a2a | local
