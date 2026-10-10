@@ -58,8 +58,14 @@ def card_for(result: TaskResult) -> dict[str, Any] | None:
         return {
             "type": "questions",
             "title": "试题清单",
+            "source": data.get("source"),
+            "student_id": data.get("student_id"),
+            "mistake_count": data.get("mistake_count"),
+            "reused": data.get("reused"),
+            "knowledge_point": data.get("knowledge_point"),
             "homework": data.get("homework"),
             "document": data.get("document"),
+            "similar": data.get("similar") or [],
             "questions": [
                 {
                     "q_id": q.get("q_id"),

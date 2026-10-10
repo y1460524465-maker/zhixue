@@ -22,6 +22,7 @@ from zhixue.schemas import (
     REQUIRED_SLOTS,
     RouterDecision,
     Intent,
+    wants_mistakes,
 )
 from zhixue.store import clear_draft, get_mysql, load_draft, save_draft
 
@@ -107,8 +108,9 @@ class LLMRouter:
         message: str,
         session_id: str = "",
         student_id: str | None = None,
+        user_id: str = "",
     ) -> RouterDecision:
-        draft = load_draft(session_id) if session_id else {}
+        draft = load_draft(session_id, user_id) if session_id else {}
         draft_slots: dict[str, Any] = dict(draft.get("slots") or {})
         draft_intent = self._to_intent(draft.get("intent"))
         if student_id:
@@ -126,6 +128,20 @@ class LLMRouter:
         required = REQUIRED_SLOTS.get(decision.intent, ())
         missing = [slot for slot in required if not merged.get(slot)]
 
+        # 出题：如果用户说的是"错的题再来几道"，走样本式入口。
+        # 这时不需要知识点，但需要知道是谁的错题。
+        if decision.intent is Intent.QUESTION_GEN:
+            hint_text = f"{message} " + " ".join(
+                str(v) for v in merged.values() if isinstance(v, str)
+            )
+            if wants_mistakes(hint_text):
+                merged["source"] = "mistakes"
+                missing = [s for s in missing if s != "knowledge_point"]
+                if not merged.get("student_id"):
+                    missing.append("student_id")
+            else:
+                merged.setdefault("source", "knowledge_point")
+
         # 批改场景：有作业和学号就够了；如果什么都没给，还需要图片或作答
         if decision.intent is Intent.GRADING and not missing:
             if not merged.get("file_path") and not merged.get("student_answers"):
@@ -136,7 +152,9 @@ class LLMRouter:
             decision.reply = self._ask_for(missing, decision, merged)
 
         if session_id:
-            save_draft(session_id, {"slots": merged, "intent": decision.intent.value})
+            save_draft(
+                session_id, {"slots": merged, "intent": decision.intent.value}, user_id
+            )
         logger.info(
             "路由结果 intent=%s missing=%s slots=%s",
             decision.intent.value,
@@ -145,8 +163,8 @@ class LLMRouter:
         )
         return decision
 
-    def reset(self, session_id: str) -> None:
-        clear_draft(session_id)
+    def reset(self, session_id: str, user_id: str = "") -> None:
+        clear_draft(session_id, user_id)
 
     # ------------------------------------------------------------------ #
     # 意图识别
@@ -310,6 +328,11 @@ class LLMRouter:
     @staticmethod
     def _ask_for(missing: list[str], decision: RouterDecision, slots: dict[str, Any]) -> str:
         labels = "、".join(SLOT_HINTS.get(slot, slot) for slot in missing)
+        if decision.intent is Intent.QUESTION_GEN:
+            if "student_id" in missing:
+                return "我来帮你把错题整理成练习。请告诉我是哪个学生（学号，如 S00001）？"
+            if "knowledge_point" in missing:
+                return "没问题，我来出题。请告诉我出哪个知识点（也可以顺便说明数量和题型）？"
         if decision.intent is Intent.DOC_GEN and "topic" in missing:
             return "好的，我来帮你生成文档。请告诉我具体想讲哪个知识点或主题？"
         if decision.intent is Intent.QUESTION_GEN and "knowledge_point" in missing:

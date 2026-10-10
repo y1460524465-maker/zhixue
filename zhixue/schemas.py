@@ -49,6 +49,17 @@ REQUIRED_SLOTS: dict[Intent, tuple[str, ...]] = {
     Intent.CHITCHAT: (),
 }
 
+#: 出题时出现这些词，说明用户想练"错过的题"（样本式入口），而不是按知识点出题
+MISTAKE_HINTS: tuple[str, ...] = (
+    "错题", "做错", "错的题", "错过的", "不会的题", "做不对",
+    "薄弱", "不熟", "没掌握", "再练一遍", "重新做", "巩固",
+)
+
+
+def wants_mistakes(text: str) -> bool:
+    """判断一段话是不是在说"给我出错过的题"。"""
+    return any(hint in (text or "") for hint in MISTAKE_HINTS)
+
 
 class RouterDecision(BaseModel):
     """LLM Router 的判定结果。"""
@@ -70,6 +81,8 @@ class TaskRequest(BaseModel):
 
     task_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     session_id: str = ""
+    #: 账号身份。入口解析一次，之后随任务包一路传递，任何一层都不重新解析。
+    user_id: str = ""
     intent: Intent
     slots: dict[str, Any] = Field(default_factory=dict)
     history: list[dict[str, str]] = Field(default_factory=list)
@@ -117,6 +130,8 @@ __all__ = [
     "Intent",
     "INTENT_LABELS",
     "REQUIRED_SLOTS",
+    "MISTAKE_HINTS",
+    "wants_mistakes",
     "RouterDecision",
     "TaskRequest",
     "TaskResult",

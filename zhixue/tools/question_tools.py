@@ -207,6 +207,7 @@ def build_exam_doc(
     full_score: int | None = None,
     duration: int = 60,
     with_answers: bool = True,
+    subdir: str | None = None,
 ) -> dict[str, Any]:
     """把题目渲染成一份试卷 Word。"""
     lines: list[str] = []
@@ -228,7 +229,9 @@ def build_exam_doc(
         "questions": "\n".join(lines),
         "answers": "\n".join(answers) if with_answers else "（略）",
     }
-    result = render_word("exam_paper", data, output_name=f"exam_{int(time.time())}.docx")
+    result = render_word(
+        "exam_paper", data, output_name=f"exam_{int(time.time())}.docx", subdir=subdir
+    )
     result["question_count"] = len(questions)
     return result
 
@@ -239,6 +242,7 @@ def build_exam_from_ids(
     subject: str = "",
     duration: int = 60,
     with_answers: bool = True,
+    subdir: str | None = None,
 ) -> dict[str, Any]:
     """按题号出卷（MCP 工具用这个版本，避免传大块 JSON）。"""
     questions: list[dict[str, Any]] = []
@@ -250,8 +254,71 @@ def build_exam_from_ids(
     if not questions:
         raise ValueError("未找到任何题目")
     return build_exam_doc(
-        title, questions, subject=subject, duration=duration, with_answers=with_answers
+        title, questions, subject=subject, duration=duration, with_answers=with_answers,
+        subdir=subdir,
     )
+
+
+# --------------------------------------------------------------------------- #
+# 指针 -> 实体
+# --------------------------------------------------------------------------- #
+def get_questions_by_ids(question_ids: list[str]) -> list[dict[str, Any]]:
+    """按题目编号批量取题（错题记录里存的是编号，题干要回题库换）。"""
+    if not question_ids:
+        return []
+    placeholders = ", ".join(["%s"] * len(question_ids))
+    rows = get_mysql().query(
+        f"SELECT * FROM question_bank WHERE q_id IN ({placeholders})", tuple(question_ids)
+    )
+    order = {qid: index for index, qid in enumerate(question_ids)}
+    result = [_format_question(dict(r)) for r in rows]
+    result.sort(key=lambda q: order.get(q["q_id"], 999))
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# 交互记忆：出过什么题，避免重复
+# --------------------------------------------------------------------------- #
+def record_issued_questions(
+    student_id: str,
+    question_ids: list[str],
+    homework_id: str | None = None,
+    source: str = "homework",
+) -> int:
+    """记下"这套题发给过这个学生"，供下次出题时排除。"""
+    if not student_id or not question_ids:
+        return 0
+    import uuid as _uuid
+    from datetime import datetime as _dt
+
+    now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+    rows = [
+        ("H" + _uuid.uuid4().hex[:12].upper(), student_id, q_id, homework_id, source, now)
+        for q_id in question_ids
+    ]
+    get_mysql().execute_many(
+        "INSERT INTO question_history (history_id, student_id, q_id, homework_id, source, created_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        rows,
+    )
+    logger.info("记录出题历史 %s: %d 条 (%s)", student_id, len(rows), source)
+    return len(rows)
+
+
+def recently_issued_q_ids(student_id: str, days: int = 30, limit: int = 500) -> list[str]:
+    """最近若干天已经发给这个学生的题目编号。"""
+    if not student_id:
+        return []
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    since = (_dt.now() - _td(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = get_mysql().query(
+        "SELECT DISTINCT q_id FROM question_history "
+        "WHERE student_id = %s AND created_at >= %s ORDER BY created_at DESC LIMIT %s",
+        (student_id, since, limit),
+    )
+    return [str(r["q_id"]) for r in rows]
 
 
 __all__ = [
@@ -262,4 +329,7 @@ __all__ = [
     "create_homework",
     "build_exam_doc",
     "build_exam_from_ids",
+    "get_questions_by_ids",
+    "record_issued_questions",
+    "recently_issued_q_ids",
 ]

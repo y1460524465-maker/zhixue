@@ -32,6 +32,7 @@ rag_qa/core/bert_query_classifier/
 logs/
 zhixue/data/outputs/
 zhixue/data/uploads/
+zhixue/data/.secret_key
 *.log
 token_response_times.csv
 

@@ -114,18 +114,60 @@
   .send:disabled { background: #a9bde6; cursor: not-allowed; }
   .hidden { display: none !important; }
   .pipe { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* 登录遮罩 */
+  #login {
+    position: fixed; inset: 0; background: linear-gradient(135deg, #eef3ff, #f4f6fb);
+    display: flex; align-items: center; justify-content: center; z-index: 99;
+  }
+  #login .box {
+    background: #fff; border-radius: 14px; padding: 32px 34px; width: 360px;
+    box-shadow: 0 10px 40px rgba(31,79,176,.14);
+  }
+  #login h2 { margin: 0 0 4px; font-size: 22px; color: var(--brand-dark); }
+  #login p.sub { margin: 0 0 20px; font-size: 12.5px; color: var(--muted); }
+  #login input {
+    width: 100%; padding: 11px 12px; border: 1px solid var(--line);
+    border-radius: 9px; font-size: 14px; margin-bottom: 12px; outline: none;
+  }
+  #login input:focus { border-color: var(--brand); }
+  #login button {
+    width: 100%; background: var(--brand); color: #fff; border: none;
+    border-radius: 9px; padding: 12px; font-size: 15px; cursor: pointer;
+  }
+  #login button:disabled { background: #a9bde6; }
+  #login .err { color: var(--err); font-size: 12.5px; min-height: 18px; margin-bottom: 6px; }
+  #login .hint { margin-top: 14px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+  .whoami { font-size: 12.5px; opacity: .9; }
 </style>
 </head>
 <body>
+
+<div id="login">
+  <div class="box">
+    <h2>智学</h2>
+    <p class="sub">智慧教学问答与作业批改系统</p>
+    <input id="loginUser" placeholder="用户名" autocomplete="username">
+    <input id="loginPass" type="password" placeholder="密码" autocomplete="current-password">
+    <div class="err" id="loginErr"></div>
+    <button id="loginBtn">登录</button>
+    <div class="hint">
+      演示账号：学生 <code>s00001</code>，老师 <code>teacher</code><br>
+      默认密码：<code>123456</code>
+    </div>
+  </div>
+</div>
 
 <header>
   <h1>智学</h1>
   <div class="sub">文档生成 · 出题 · 批改 · 学情分析 四 Agent 协同</div>
   <div class="spacer"></div>
+  <span class="whoami" id="whoami"></span>
   <label class="sub">当前学生</label>
   <select id="student"></select>
   <button id="refresh">刷新状态</button>
   <button id="clear">清空会话</button>
+  <button id="logout">退出</button>
 </header>
 
 <div class="layout">
@@ -167,8 +209,69 @@
 </div>
 
 <script>
-const state = { sessionId: null, studentId: "", upload: null, busy: false };
+const state = {
+  token: localStorage.getItem("zhixue_token") || "",
+  user: null,
+  sessionId: null,
+  studentId: "",
+  upload: null,
+  busy: false,
+};
 const $ = (id) => document.getElementById(id);
+
+/* 所有请求都带上身份；401 直接退回登录页 */
+function apiFetch(url, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (state.token) headers["Authorization"] = "Bearer " + state.token;
+  return fetch(url, Object.assign({}, opts, { headers })).then((res) => {
+    if (res.status === 401) {
+      logout();
+      throw new Error("登录已失效，请重新登录");
+    }
+    return res;
+  });
+}
+
+function logout() {
+  state.token = "";
+  state.user = null;
+  state.sessionId = null;
+  localStorage.removeItem("zhixue_token");
+  $("login").classList.remove("hidden");
+  $("loginErr").textContent = "";
+}
+
+async function doLogin() {
+  const username = $("loginUser").value.trim();
+  const password = $("loginPass").value;
+  if (!username || !password) {
+    $("loginErr").textContent = "请输入用户名和密码";
+    return;
+  }
+  $("loginBtn").disabled = true;
+  $("loginErr").textContent = "";
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      $("loginErr").textContent = data.detail || "登录失败";
+      return;
+    }
+    state.token = data.token;
+    state.user = data.user;
+    localStorage.setItem("zhixue_token", data.token);
+    $("login").classList.add("hidden");
+    await bootstrap();
+  } catch (err) {
+    $("loginErr").textContent = "无法连接服务：" + err.message;
+  } finally {
+    $("loginBtn").disabled = false;
+  }
+}
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -227,19 +330,33 @@ function renderCard(card) {
   }
 
   if (card.type === "questions") {
+    const badge = card.source === "mistakes"
+      ? `<span class="tag no" style="margin-right:8px">错题来源</span>`
+      : (card.source === "knowledge_point"
+          ? `<span class="tag ok" style="margin-right:8px">知识点</span>` : "");
     const target = card.homework
       ? `已下发作业：<b>${esc(card.homework.homework_id)}</b>（${card.homework.question_count} 题 / 满分 ${card.homework.full_score}）`
       : (card.document ? `试卷已导出` : "");
+    const origin = card.source === "mistakes" && card.student_id
+      ? `<div style="color:var(--muted);margin-bottom:6px">取自 ${esc(card.student_id)} 的错题记录（共 ${card.mistake_count || 0} 条）` +
+        (card.reused ? `，本期已出过，属于重复巩固` : ``) + `</div>`
+      : "";
     const files = card.document
       ? `<a class="file-link" href="/api/files/${encodeURIComponent(card.document.filename)}">📄 下载 ${esc(card.document.filename)}</a>` : "";
+    const similar = (card.similar || []).length
+      ? `<div style="margin-top:8px;color:var(--muted);font-size:12px">题库语义检索另命中 ${card.similar.length} 道相似题作参考：` +
+        card.similar.map(s => esc(s.q_id)).join("、") + `</div>`
+      : "";
     const qs = (card.questions || []).map((q, i) => `
       <li><b>${i + 1}. [${esc(q.q_type)}/难度${q.difficulty}]</b> ${esc(q.stem)}
         ${(q.options && q.options.length) ? `<div style="color:var(--muted)">${q.options.map(o => esc(o)).join("<br>")}</div>` : ""}
         <div style="color:var(--ok)">参考答案：${esc(q.answer)}</div>
       </li>`).join("");
     return `<div class="card"><header>📚 试题清单</header><div class="body">
+      <div style="margin-bottom:6px">${badge}${card.knowledge_point ? "知识点：" + esc(card.knowledge_point) : ""}</div>
+      ${origin}
       <div style="margin-bottom:8px">${target}</div>
-      <ul class="clean">${qs}</ul>${files}</div></div>`;
+      <ul class="clean">${qs}</ul>${files}${similar}</div></div>`;
   }
 
   if (card.type === "document") {
@@ -291,7 +408,7 @@ async function send(message) {
   let bubble = null, text = "", started = false;
 
   try {
-    const resp = await fetch("/api/chat/stream", {
+    const resp = await apiFetch("/api/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
@@ -347,17 +464,26 @@ async function send(message) {
 /* ---------------- 状态面板 ---------------- */
 async function loadStudents() {
   try {
-    const data = await (await fetch("/api/students")).json();
+    const data = await (await apiFetch("/api/students")).json();
     const sel = $("student");
-    sel.innerHTML = `<option value="">（不指定学生）</option>` +
-      data.students.map(s => `<option value="${s.student_id}">${s.student_id} ${s.name}</option>`).join("");
-    if (data.students.length) { sel.value = data.students[0].student_id; state.studentId = sel.value; }
+    if (state.user && state.user.role === "student") {
+      // 学生账号被强制绑定到自己，不能切换
+      sel.innerHTML = data.students
+        .map(s => `<option value="${s.student_id}">${s.student_id} ${s.name}</option>`).join("");
+      sel.disabled = true;
+      state.studentId = data.students.length ? data.students[0].student_id : "";
+    } else {
+      sel.disabled = false;
+      sel.innerHTML = `<option value="">（不指定学生）</option>` +
+        data.students.map(s => `<option value="${s.student_id}">${s.student_id} ${s.name}</option>`).join("");
+      if (data.students.length) { sel.value = data.students[0].student_id; state.studentId = sel.value; }
+    }
   } catch (e) { console.warn(e); }
 }
 
 async function loadStatus() {
   try {
-    const data = await (await fetch("/api/agents")).json();
+    const data = await (await apiFetch("/api/agents")).json();
     $("agents").innerHTML = data.agents.map(a => `
       <div class="agent-row">
         <span class="dot ${a.online ? "on" : ""}"></span>
@@ -369,7 +495,7 @@ async function loadStatus() {
   } catch (e) { $("agents").textContent = "无法获取状态"; }
 
   try {
-    const r = await (await fetch("/api/retrieval")).json();
+    const r = await (await apiFetch("/api/retrieval")).json();
     $("retrieval").innerHTML =
       `<span class="dot ${r.backend === "milvus" ? "on" : ""}"></span>检索后端：${esc(r.backend)}
        <small>${esc(r.milvus_uri)}</small>`;
@@ -396,7 +522,7 @@ $("student").onchange = (e) => { state.studentId = e.target.value; };
 $("refresh").onclick = loadStatus;
 $("clear").onclick = async () => {
   if (!state.sessionId) return;
-  await fetch(`/api/session/${state.sessionId}`, { method: "DELETE" });
+  await apiFetch(`/api/session/${state.sessionId}`, { method: "DELETE" });
   $("messages").innerHTML = "";
   state.sessionId = null;
   addMessage("system", "会话已清空。");
@@ -410,7 +536,7 @@ $("uploadBtn").onclick = () => {
     if (!file) return;
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch("/api/upload", { method: "POST", body: fd });
+    const res = await apiFetch("/api/upload", { method: "POST", body: fd });
     if (!res.ok) { alert("上传失败"); return; }
     state.upload = await res.json();
     const chip = $("attachChip");
@@ -420,11 +546,33 @@ $("uploadBtn").onclick = () => {
   input.click();
 };
 
-addMessage("system",
-  "你好，我是 <b>智学</b>。我可以：<br>· 出题 / 组卷 · 批改作业 · 分析学情 · 生成讲义与学习计划 · 课本答疑<br>左侧可以看到四个 Agent 的在线状态。");
-loadStudents();
-loadStatus();
-setInterval(loadStatus, 20000);
+/* ---------------- 启动 ---------------- */
+async function bootstrap() {
+  try {
+    const me = await (await apiFetch("/api/me")).json();
+    state.user = me;
+    $("whoami").textContent = `${me.name}（${me.role === "teacher" ? "老师" : "学生"}）`;
+  } catch (e) { return; }
+
+  $("messages").innerHTML = "";
+  addMessage("system",
+    "你好，我是 <b>智学</b>。我可以：<br>· 出题 / 组卷 · 批改作业 · 学情分析 · 生成教案与学习计划 · 课本答疑<br>" +
+    "左侧可以看到四个 Agent 的在线状态。");
+  await loadStudents();
+  await loadStatus();
+  setInterval(loadStatus, 20000);
+}
+
+$("loginBtn").onclick = doLogin;
+$("logout").onclick = () => { logout(); };
+[$("loginUser"), $("loginPass")].forEach((el) =>
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); })
+);
+
+if (state.token) {
+  $("login").classList.add("hidden");
+  bootstrap();
+}
 </script>
 </body>
 </html>

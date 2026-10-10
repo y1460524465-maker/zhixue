@@ -74,6 +74,28 @@ def register(mcp: Any) -> None:
             title, question_ids, subject=subject, duration=duration
         )
 
+    @mcp.tool
+    def get_questions_by_ids(question_ids: list[str]) -> list[dict[str, Any]]:
+        """按题目编号批量取题（错题记录里只有编号，题干要回题库换）。"""
+        return question_tools.get_questions_by_ids(question_ids)
+
+    @mcp.tool
+    def record_issued_questions(
+        student_id: str,
+        question_ids: list[str],
+        homework_id: str | None = None,
+        source: str = "homework",
+    ) -> int:
+        """记录"这些题发给过这个学生"，供下次出题时排除重复。"""
+        return question_tools.record_issued_questions(
+            student_id, question_ids, homework_id=homework_id, source=source
+        )
+
+    @mcp.tool
+    def recently_issued_q_ids(student_id: str, days: int = 30) -> list[str]:
+        """最近若干天已经发给这个学生的题目编号。"""
+        return question_tools.recently_issued_q_ids(student_id, days=days)
+
 
 def main() -> None:
     serve(

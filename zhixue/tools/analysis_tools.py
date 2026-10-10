@@ -245,6 +245,44 @@ def write_mistake_records(student_id: str, homework_id: str | None = None) -> di
     return sync_mistake_records(student_id, homework_id)
 
 
+def list_mistakes(
+    student_id: str,
+    subject: str | None = None,
+    kp_id: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """读某个学生的错题清单。
+
+    按约定，这里**只交事实、不给结论**：
+    返回的是错题记录库里的原始记录（题目编号 + 知识点 + 错次 + 掌握度），
+    也就是**指针**，不含题干。想拿题干由调用方去题库换。
+    至于"先出哪几道"，是出题方的判断，这里不做排序建议以外的加工。
+    """
+    sql = (
+        "SELECT q_id, kp_id, subject, wrong_count, last_wrong_time, mastery "
+        "FROM mistake_record WHERE student_id = %s"
+    )
+    params: list[Any] = [student_id]
+    if subject:
+        sql += " AND subject = %s"
+        params.append(subject)
+    if kp_id:
+        sql += " AND kp_id = %s"
+        params.append(kp_id)
+    # 错得越多、掌握得越差的排前面——这是事实的自然顺序，不是结论
+    sql += " ORDER BY wrong_count DESC, mastery ASC, last_wrong_time DESC LIMIT %s"
+    params.append(limit)
+
+    rows = [dict(r) for r in get_mysql().query(sql, tuple(params))]
+    for row in rows:
+        if row.get("last_wrong_time") is not None:
+            row["last_wrong_time"] = str(row["last_wrong_time"])
+        if row.get("mastery") is not None:
+            row["mastery"] = float(row["mastery"])
+    logger.info("读取错题清单 %s -> %d 条", student_id, len(rows))
+    return {"student_id": student_id, "count": len(rows), "mistakes": rows}
+
+
 __all__ = [
     "SCHEMA_PROMPT",
     "text_to_sql",
@@ -255,4 +293,5 @@ __all__ = [
     "class_comparison",
     "frequent_mistakes",
     "write_mistake_records",
+    "list_mistakes",
 ]

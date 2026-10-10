@@ -54,7 +54,9 @@ class AgentNetwork:
         return self.settings.network_transport
 
     # ------------------------------------------------------------------ #
-    def plan(self, decision: RouterDecision) -> list[tuple[str, TaskRequest]]:
+    def plan(
+        self, decision: RouterDecision, user_id: str = ""
+    ) -> list[tuple[str, TaskRequest]]:
         """把意图拆成 ``(agent_key, TaskRequest)`` 列表。"""
         intents: list[Intent] = []
         for intent in [decision.intent, *decision.matched_intents]:
@@ -74,6 +76,7 @@ class AgentNetwork:
                     agent,
                     TaskRequest(
                         session_id=str(slots.get("session_id") or ""),
+                        user_id=user_id,
                         intent=intent,
                         slots={**slots, "intent": intent.value},
                     ),
@@ -82,8 +85,8 @@ class AgentNetwork:
         return jobs
 
     # ------------------------------------------------------------------ #
-    async def dispatch(self, decision: RouterDecision) -> list[TaskResult]:
-        jobs = self.plan(decision)
+    async def dispatch(self, decision: RouterDecision, user_id: str = "") -> list[TaskResult]:
+        jobs = self.plan(decision, user_id=user_id)
         if not jobs:
             return []
         names = "、".join(AGENT_DISPLAY_NAME.get(agent, agent) for agent, _ in jobs)

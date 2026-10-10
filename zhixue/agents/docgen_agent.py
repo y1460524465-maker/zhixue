@@ -35,6 +35,7 @@ class DocGenAgent(BaseAgent):
         student_name = self.slot(request, "student_name", "同学")
         class_name = self.slot(request, "class_name", "—")
         days = int(self.slot(request, "days", 7) or 7)
+        subdir = request.user_id  # 生成的文件按用户隔离
 
         # 1) RAG 课本检索（走 MCP DocGen -> 课本向量库）
         chunks = self.tools.call("search_textbook", query=topic, subject=subject, k=4) or []
@@ -66,6 +67,7 @@ class DocGenAgent(BaseAgent):
                 class_name=class_name,
                 days=days,
                 goal=composed.get("summary") or None,
+                subdir=subdir,
             )
         else:
             doc = self.tools.call(
@@ -76,6 +78,7 @@ class DocGenAgent(BaseAgent):
                 example=composed.get("example", ""),
                 exercises=composed.get("exercises", ""),
                 pitfall=composed.get("pitfall", ""),
+                subdir=subdir,
             )
 
         summary = composed.get("summary") or f"已为你整理「{topic}」的学习材料。"

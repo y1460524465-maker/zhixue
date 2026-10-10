@@ -298,19 +298,31 @@ def get_cache() -> Cache:
     return _cache
 
 
-DRAFT_KEY = "zhixue:draft:{session_id}"
+#: 草稿的 key 里必须带用户身份——这是"工作态记忆"的隔离点
+DRAFT_KEY = "zhixue:draft:{user_id}:{session_id}"
 
 
-def load_draft(session_id: str) -> dict[str, Any]:
-    return get_cache().get_json(DRAFT_KEY.format(session_id=session_id)) or {}
+def load_draft(session_id: str, user_id: str = "") -> dict[str, Any]:
+    if not session_id:
+        return {}
+    key = DRAFT_KEY.format(user_id=user_id or "-", session_id=session_id)
+    return get_cache().get_json(key) or {}
 
 
-def save_draft(session_id: str, draft: dict[str, Any], ttl: int = 3600) -> None:
-    get_cache().set_json(DRAFT_KEY.format(session_id=session_id), draft, ttl=ttl)
+def save_draft(
+    session_id: str, draft: dict[str, Any], user_id: str = "", ttl: int = 3600
+) -> None:
+    if not session_id:
+        return
+    key = DRAFT_KEY.format(user_id=user_id or "-", session_id=session_id)
+    get_cache().set_json(key, draft, ttl=ttl)
 
 
-def clear_draft(session_id: str) -> None:
-    get_cache().delete(DRAFT_KEY.format(session_id=session_id))
+def clear_draft(session_id: str, user_id: str = "") -> None:
+    if not session_id:
+        return
+    key = DRAFT_KEY.format(user_id=user_id or "-", session_id=session_id)
+    get_cache().delete(key)
 
 
 __all__ = [

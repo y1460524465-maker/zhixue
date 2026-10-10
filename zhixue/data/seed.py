@@ -39,6 +39,7 @@ logger = get_logger("data.seed")
 RANDOM_SEED = 20251010
 
 TABLES = [
+    "question_history",
     "grading_result",
     "mistake_record",
     "score_record",
@@ -52,6 +53,7 @@ TABLES = [
     "word_template",
     "student",
     "conversation",
+    "app_user",
 ]
 
 #: 每份作业的题目数量
@@ -498,10 +500,15 @@ def seed(reset: bool = False, with_images: bool = True) -> dict[str, Any]:
     stats = seed_submissions(mysql, students, homeworks, rng)
     seed_textbook(mysql)
     seed_word_templates(mysql)
+    # 账号体系：每个学生一个账号 + 一个老师账号（默认口令 123456）
+    from zhixue.auth import ensure_default_users
+
+    users = ensure_default_users(mysql)
     images = seed_answer_sheet_images(mysql, students, homeworks) if with_images else []
 
     summary = {
         "students": len(students),
+        "accounts": users,
         "knowledge_points": len(KNOWLEDGE_POINTS),
         "questions": len(questions),
         "homeworks": len(homeworks),

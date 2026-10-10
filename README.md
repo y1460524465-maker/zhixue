@@ -8,6 +8,20 @@
 > 新系统全部在 `zhixue/` 目录下，从 [快速开始](#二快速开始) 直接跑。
 > 原项目的说明在文末 [附录：原项目](#附录原项目itcast_qa_system)。
 
+## 整体架构
+
+![智学整体架构](docs/images/zhixue-architecture.png)
+
+自上而下四层：**主应用**（LLM Router 意图识别 + AgentNetwork 分发）→ **A2A Agent 层**
+（教案生成 / 出题 / 批改 / 学情分析）→ **MCP 服务层**（四个 `/mcp` 端点）→
+**工具与数据层**（课本向量库、Word 模板库、题目向量库、学生成绩库、错题记录库、作业答案库），
+最后由「结果优化 · LLM 总结」汇总回用户界面。
+
+图中两条**虚线**是 Agent 之间的横向协作，也是这套系统"能自己转起来"的关键：
+
+* **批改 → 学情**：批改完成后把错题推给学情分析 Agent 落库（已实现，走真实 A2A 消息）；
+* **出题 ← 学情**：出题 Agent 在做"错题巩固"时，向学情 Agent 读取错题记录（已实现）。
+
 ---
 
 ## 一、架构与代码的对应关系
@@ -29,9 +43,84 @@
 | 工具与数据 | OCR / 答案比对 | — | `zhixue/tools/grading_tools.py` |
 | 工具与数据 | Text-to-SQL / 学情 | — | `zhixue/tools/analysis_tools.py` |
 
-架构图上的**虚线**（Agent 之间横向调用）由 `GradingAgent` 在批改完成后
-通过 `A2AClient` 通知 `AnalysisAgent` 写入错题记录库实现，
-返回结果里会显示 `通道：a2a`。
+---
+
+## 一·五、能力闭环：批改 → 学情 → 出题
+
+四个 Agent 分成两组：**内容生产组**（教案、出题）负责"给东西"，
+**数据沉淀组**（批改、学情）负责"记事实"。两组之间有一条闭环：
+
+```
+  学生作答
+     ↓
+  批改 Agent ──→ 分数 + 逐题对错
+     │
+     └──错题──→ 学情 Agent（错题记录库）
+                    │
+                    └──错题指针──→ 出题 Agent
+                                      │
+                          指针换实体（回自己的题库）+ 排除近期已出过的题
+                                      ↓
+                                   错题巩固作业
+                                      ↓
+                                  学生再做 → 回到批改
+```
+
+**出题 Agent 有两个入口，一条出口**：
+
+| 入口 | 触发方式 | 走向 |
+|---|---|---|
+| 标签式 | "给 Python 装饰器出 3 道题" | 解析知识点 → 题库检索 → 出题 |
+| 样本式 | "把做错的题再出几道" | A2A 找学情要错题**指针** → 回题库换实体 → 出题 |
+
+入口二遵守一条架构规矩：**数据归谁管，就通过谁拿。**
+错题记录库归学情 Agent 独占，出题 Agent 不直连；而题库本来就是出题 Agent 的地盘，
+所以"指针换实体"这一步是它自己的活。
+
+教案生成 Agent 刻意**不在这条闭环上**——它面向知识不面向人，
+输入一个主题、输出一份教案，不参与"做错—记下—再练"的循环。
+
+---
+
+## 一·六、账号、用户隔离与记忆
+
+### 两种身份，分开存放
+
+| | 是什么 | 例子 |
+|---|---|---|
+| **账号身份** `user_id` | 谁在对话 | `US00001` |
+| **数据主体** `student_id` | 对话里谈的是谁的数据 | `S00001` |
+
+学生账号被**强制绑定**到自己的学号，请求里传什么都改不了；
+老师账号不绑定，谈谁由对话内容决定。这样以后加老师端不需要重构。
+
+### 隔离落在每一层
+
+| 层 | 隔离方式 |
+|---|---|
+| 入口 | 身份只从 `Authorization: Bearer <token>` 解析，**不从请求参数取** |
+| 会话 | `conversation` 表按 `user_id` 过滤，别人的 `session_id` 读不到内容 |
+| 草稿 | 缓存 key 是 `zhixue:draft:{user_id}:{session_id}` |
+| 文件 | 生成与上传的文件落在 `data/outputs/{user_id}/`、`data/uploads/{user_id}/` |
+| **跨 Agent** | **`user_id` 随 `TaskRequest` 一路传递**，各层不重新解析 |
+
+### 记忆分四层，分别归不同 Agent
+
+| 层 | 记什么 | 存在哪 |
+|---|---|---|
+| 会话记忆 | 最近聊了什么 | `conversation` 表 |
+| 工作态记忆 | 槽位草稿（"还差一个知识点"） | 缓存，按 user + session 隔离 |
+| 业务记忆 | 错题、成绩、薄弱点 | 学情 Agent 的错题/成绩库 |
+| 交互记忆 | 出过哪些题（**用于防重复**） | `question_history` 表 |
+
+三条硬约定：
+
+1. 身份在入口解析一次，之后随任务包传递；
+2. 所有存储访问强制带身份过滤；
+3. **身份缺失或非法直接拒绝**——降级可以用于功能，不能用于权限。
+
+> Agent 本身是**无状态**的：记忆是"每次去取"，不是"进程里存"。
+> 这样多用户并发不会串，重启也不会丢。
 
 ---
 
@@ -92,6 +181,18 @@ python run_all.py --mode local     # 单进程模式（不需要 MCP/A2A SDK）
 
 浏览器打开 <http://127.0.0.1:8000>。
 
+### 5. 登录（演示账号）
+
+生成仿真数据时会自动建好账号，默认口令都是 `123456`：
+
+| 账号 | 角色 | 能看到什么 |
+|---|---|---|
+| `s00001` … `s00020` | 学生 | **只能看到自己**的学情与文件 |
+| `teacher` | 老师 | 全部 20 个学生，可指定学号操作 |
+
+登录后所有请求都要带 `Authorization: Bearer <token>`；
+不带凭证访问 `/api/chat` 会直接返回 401。
+
 ---
 
 ## 二·五、模型权重说明（仓库里没有，需要自己放）
@@ -131,10 +232,12 @@ python -c "from zhixue.vector import get_retriever; print(get_retriever().rebuil
 | 输入 | 走哪条链路 |
 |---|---|
 | `给 Python 装饰器出 3 道题` | LLM Router → 出题 Agent → 题库向量库 → 作业下发 |
+| `把做错的题再出几道给我练` | 出题 Agent → **A2A 读学情错题** → 回题库换实体 → 错题巩固作业 |
 | `批改 S00001 的 HW00001` | 批改 Agent → 复用已有作答重新批改 → **A2A 通知**学情分析落错题 |
 | 点「上传答题卡」选 `zhixue/data/outputs/answer_sheet_HW00001_S00001.png`，再发 `批改 S00001 的 HW00001` | 批改 Agent → **OCR 识别** → 比对 → A2A 落错题 |
-| `分析一下 S00001 的学情` | 学情 Agent → Text-to-SQL/成绩库 → 学生画像 |
-| `生成装饰器的学习计划` | 文档 Agent → 课本检索 → Word 模板渲染 |
+| `分析一下我的学情`（学生账号） | 学情 Agent → 成绩库 + 错题库 → 学生画像 |
+| `分析一下 S00003 的学情`（老师账号） | 同上，可指定任意学号 |
+| `生成装饰器的学习计划` | 教案 Agent → 课本检索 → Word 模板渲染 |
 | `解释一下 Java 线程池的核心参数` | 主应用 RAG 答疑（带课本引用） |
 | `批改作业` → `S00001 和 HW00002` | 信息缺失 → 追问 → 多轮补槽后继续 |
 
@@ -147,9 +250,11 @@ python -c "from zhixue.vector import get_retriever; print(get_retriever().rebuil
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
+| POST | `/api/login` | 登录（返回 token，唯一免鉴权接口） |
+| GET | `/api/me` | 当前账号信息 |
 | POST | `/api/chat` | 对话（返回结构化 JSON + 卡片） |
 | POST | `/api/chat/stream` | 对话（SSE：`route` / `agent` / `token` / `card` / `end`） |
-| GET | `/api/students` | 学生列表 |
+| GET | `/api/students` | 学生列表（学生账号只返回自己） |
 | GET | `/api/homeworks` | 作业列表 |
 | GET | `/api/agents` | 四个 Agent 在线状态 |
 | GET | `/api/retrieval` | 向量检索后端状态 |
@@ -157,6 +262,8 @@ python -c "from zhixue.vector import get_retriever; print(get_retriever().rebuil
 | POST | `/api/upload` | 上传答题卡图片 |
 | GET | `/api/files/{name}` | 下载生成的文档 / 图片 |
 | GET | `/health` | 健康检查 |
+
+除 `/api/login`、`/health` 与静态页面外，**所有接口都需要登录**。
 
 每个 Agent（:5010~:5013）都提供：
 
@@ -174,9 +281,12 @@ python -c "from zhixue.vector import get_retriever; print(get_retriever().rebuil
 
 ```python
 RouterDecision   # LLM Router 输出：intent / slots / missing / reply
-TaskRequest      # 主应用 -> Agent：task_id / intent / slots / history
+TaskRequest      # 主应用 -> Agent：task_id / session_id / user_id / intent / slots
 TaskResult       # Agent -> 主应用：status / text / data / artifacts / elapsed
 ```
+
+`user_id` 是**必填的身份字段**，随任务包一路传递到每个 Agent，
+各层用它过滤数据，绝不重新解析、也不从全局变量取。
 
 意图与必填槽位（`zhixue/schemas.py`）：
 
@@ -234,6 +344,7 @@ network_transport = a2a   # a2a | local
 ```
 zhixue/
   config.py            统一配置（环境变量 > config.ini > 默认值）
+  auth.py              账号、角色、令牌（标准库自签，无额外依赖）
   schemas.py           RouterDecision / TaskRequest / TaskResult
   store.py             MySQL + Redis（可降级）
   vector.py            Milvus + BM25 双通道检索
@@ -246,6 +357,9 @@ zhixue/
   tools/               纯业务逻辑（无协议依赖，可直接单测）
   app/                 主应用 + 前端
   data/                建表 / 仿真内容 / 模板 / 种子脚本
+docs/
+  images/              架构图
+  智学-需求与设计.md    需求、职责边界与关键设计决策
 run_all.py             一键启动 9 个进程
 ```
 

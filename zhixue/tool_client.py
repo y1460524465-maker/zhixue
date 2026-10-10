@@ -39,6 +39,9 @@ LOCAL_TOOLS: dict[str, dict[str, Callable[..., Any]]] = {
         "select_questions": question_tools.select_questions,
         "create_homework": question_tools.create_homework,
         "build_exam_from_ids": question_tools.build_exam_from_ids,
+        "get_questions_by_ids": question_tools.get_questions_by_ids,
+        "record_issued_questions": question_tools.record_issued_questions,
+        "recently_issued_q_ids": question_tools.recently_issued_q_ids,
     },
     "grading": {
         "ocr_extract": grading_tools.ocr_extract,
@@ -57,6 +60,7 @@ LOCAL_TOOLS: dict[str, dict[str, Callable[..., Any]]] = {
         "class_comparison": analysis_tools.class_comparison,
         "frequent_mistakes": analysis_tools.frequent_mistakes,
         "write_mistake_records": analysis_tools.write_mistake_records,
+        "list_mistakes": analysis_tools.list_mistakes,
     },
 }
 

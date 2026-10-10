@@ -40,6 +40,22 @@ class AnalysisAgent(BaseAgent):
                 [],
             )
 
+        # 出题 Agent 通过 A2A 调过来：只交出事实（错题指针），不做任何判断
+        if action == "list_mistakes":
+            if not student_id:
+                raise ValueError("读取错题清单需要 student_id")
+            payload = self.tools.call(
+                "list_mistakes",
+                student_id=student_id,
+                subject=self.slot(request, "subject"),
+                limit=int(self.slot(request, "limit", 20) or 20),
+            )
+            return (
+                f"已读取 {student_id} 的错题 {payload.get('count', 0)} 条。",
+                payload,
+                [],
+            )
+
         if not student_id:
             raise ValueError("学情分析需要 student_id（或先在设置里选择学生）")
 

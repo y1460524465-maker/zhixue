@@ -152,20 +152,100 @@ CREATE TABLE IF NOT EXISTS word_template (
 CREATE TABLE IF NOT EXISTS conversation (
   id         INT AUTO_INCREMENT PRIMARY KEY,
   session_id VARCHAR(64) NOT NULL,
+  user_id    VARCHAR(64) NOT NULL DEFAULT '',
   student_id VARCHAR(32) NULL,
   question   TEXT        NOT NULL,
   answer     TEXT        NOT NULL,
   intent     VARCHAR(32) NULL,
   created_at DATETIME    NOT NULL,
-  INDEX idx_session (session_id)
+  INDEX idx_session (session_id),
+  INDEX idx_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS app_user (
+  user_id       VARCHAR(32)  NOT NULL PRIMARY KEY,
+  username      VARCHAR(64)  NOT NULL,
+  display_name  VARCHAR(64)  NOT NULL,
+  role          VARCHAR(16)  NOT NULL,
+  student_id    VARCHAR(32)  NULL,
+  password_salt VARCHAR(32)  NOT NULL,
+  password_hash VARCHAR(128) NOT NULL,
+  created_at    DATETIME     NOT NULL,
+  UNIQUE KEY uk_username (username),
+  INDEX idx_student (student_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS question_history (
+  history_id  VARCHAR(32) NOT NULL PRIMARY KEY,
+  student_id  VARCHAR(32) NOT NULL,
+  q_id        VARCHAR(32) NOT NULL,
+  homework_id VARCHAR(32) NULL,
+  source      VARCHAR(16) NOT NULL,
+  created_at  DATETIME    NOT NULL,
+  INDEX idx_stu (student_id),
+  INDEX idx_stu_q (student_id, q_id),
+  INDEX idx_time (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 """
 
 
+def _columns(mysql, table: str) -> set[str]:
+    rows = mysql.query(
+        "SELECT column_name AS name FROM information_schema.columns "
+        "WHERE table_schema = %s AND table_name = %s",
+        (mysql.settings.mysql_database, table),
+    )
+    return {str(r["name"]).lower() for r in rows}
+
+
+def _migrate(mysql) -> list[str]:
+    """给已存在的库补新列 / 新索引。
+
+    ``CREATE TABLE IF NOT EXISTS`` 不会改动已存在的表，所以升级要单独处理。
+    """
+    applied: list[str] = []
+
+    if "conversation" in _tables(mysql):
+        existing = _columns(mysql, "conversation")
+        if "user_id" not in existing:
+            mysql.execute(
+                "ALTER TABLE `conversation` ADD COLUMN `user_id` VARCHAR(64) NOT NULL DEFAULT ''"
+            )
+            applied.append("conversation.user_id")
+        indexes = _indexes(mysql, "conversation")
+        if "idx_user" not in indexes:
+            mysql.execute("ALTER TABLE `conversation` ADD INDEX `idx_user` (`user_id`)")
+            applied.append("conversation.idx_user")
+
+    return applied
+
+
+def _tables(mysql) -> set[str]:
+    rows = mysql.query(
+        "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = %s",
+        (mysql.settings.mysql_database,),
+    )
+    return {str(r["name"]).lower() for r in rows}
+
+
+def _indexes(mysql, table: str) -> set[str]:
+    rows = mysql.query(
+        "SELECT DISTINCT index_name AS name FROM information_schema.statistics "
+        "WHERE table_schema = %s AND table_name = %s",
+        (mysql.settings.mysql_database, table),
+    )
+    return {str(r["name"]).lower() for r in rows}
+
+
 def create_schema(mysql) -> None:
-    """在目标库上建表（幂等）。"""
+    """在目标库上建表（幂等），并把老库迁移到最新结构。"""
     mysql.ensure_database()
     mysql.execute_script(DDL)
+    applied = _migrate(mysql)
+    if applied:
+        from zhixue.logging_setup import get_logger
+
+        get_logger("data.schema").info("结构迁移完成: %s", ", ".join(applied))
 
 
 __all__ = ["DDL", "create_schema"]

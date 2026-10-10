@@ -100,12 +100,14 @@ def render_word(
     doc_type: str,
     data: dict[str, Any],
     output_name: str | None = None,
+    subdir: str | None = None,
 ) -> dict[str, Any]:
     """用 ``data`` 填充模板，生成一份 .docx。
 
     :param doc_type: ``study_plan`` / ``lecture`` / ``mistake_report`` / ``exam_paper``
     :param data: 占位符 -> 内容
     :param output_name: 输出文件名（不含目录），默认按类型加时间戳
+    :param subdir: 输出子目录，用于按用户隔离；传 ``user_id`` 即可
     """
     from docx import Document
 
@@ -122,11 +124,12 @@ def render_word(
     document = Document(str(template_path))
     _fill_document(document, mapping)
 
-    settings.output_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = settings.output_dir / subdir if subdir else settings.output_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
     filename = output_name or f"{doc_type}_{int(time.time())}.docx"
     if not filename.endswith(".docx"):
         filename += ".docx"
-    output_path = settings.output_dir / filename
+    output_path = target_dir / filename
     document.save(str(output_path))
     logger.info("生成 Word 文档: %s", output_path)
     return {
@@ -134,6 +137,7 @@ def render_word(
         "template": template["name"],
         "path": str(output_path),
         "filename": output_path.name,
+        "subdir": subdir or "",
         "size": output_path.stat().st_size,
     }
 
@@ -148,6 +152,7 @@ def build_study_plan(
     class_name: str = "—",
     days: int = 7,
     goal: str | None = None,
+    subdir: str | None = None,
 ) -> dict[str, Any]:
     """检索课本 -> 组装学习计划 -> 渲染 Word。"""
     chunks = search_textbook(topic, subject=subject, k=4)
@@ -171,6 +176,7 @@ def build_study_plan(
             "remark": "按计划执行，每完成一天就在错题本上记录一次自测结果。",
         },
         output_name=f"study_plan_{int(time.time())}.docx",
+        subdir=subdir,
     )
 
 
@@ -182,6 +188,7 @@ def build_lecture_note(
     exercises: str = "",
     pitfall: str = "",
     difficulty: str = "中等",
+    subdir: str | None = None,
 ) -> dict[str, Any]:
     """生成知识点讲义。"""
     return render_word(
@@ -197,6 +204,7 @@ def build_lecture_note(
             "pitfall": pitfall,
         },
         output_name=f"lecture_{int(time.time())}.docx",
+        subdir=subdir,
     )
 
 

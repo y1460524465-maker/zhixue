@@ -59,6 +59,18 @@ def register(mcp: Any) -> None:
         """接收批改结果，写入错题记录库（批改 Agent 会通过 A2A 调用这里）。"""
         return analysis_tools.write_mistake_records(student_id, homework_id)
 
+    @mcp.tool
+    def list_mistakes(
+        student_id: str,
+        subject: str | None = None,
+        kp_id: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """读某个学生的错题清单（只返回题目编号与错次等事实，题干请回题库取）。"""
+        return analysis_tools.list_mistakes(
+            student_id, subject=subject, kp_id=kp_id, limit=limit
+        )
+
 
 def main() -> None:
     serve(
