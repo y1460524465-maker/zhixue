@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智学 · 智慧教学问答与作业批改系统</title>
+<style>
+  :root {
+    --brand: #2f6feb;
+    --brand-dark: #1f4fb0;
+    --bg: #f4f6fb;
+    --panel: #ffffff;
+    --line: #e2e6ef;
+    --text: #1f2430;
+    --muted: #7a8398;
+    --ok: #17a673;
+    --warn: #e0a400;
+    --err: #d94a4a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: flex; flex-direction: column;
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    background: linear-gradient(90deg, var(--brand), #5b8def);
+    color: #fff; padding: 12px 20px; display: flex; align-items: center; gap: 14px;
+    box-shadow: 0 2px 10px rgba(47,111,235,.25);
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .5px; }
+  header .sub { font-size: 12px; opacity: .85; }
+  header .spacer { flex: 1; }
+  header select, header button {
+    border: none; border-radius: 6px; padding: 6px 10px; font-size: 13px;
+  }
+  header button { background: rgba(255,255,255,.18); color: #fff; cursor: pointer; }
+  header button:hover { background: rgba(255,255,255,.3); }
+
+  .layout { flex: 1; display: flex; min-height: 0; }
+  aside {
+    width: 260px; border-right: 1px solid var(--line); background: var(--panel);
+    padding: 14px; overflow-y: auto;
+  }
+  aside h3 { font-size: 13px; color: var(--muted); margin: 6px 0 10px; font-weight: 600; }
+  .agent-row {
+    display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+    padding: 7px 8px; border-radius: 6px; margin-bottom: 4px; background: #f7f9fd;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--err); flex: none; }
+  .dot.on { background: var(--ok); }
+  .agent-row small { color: var(--muted); margin-left: auto; font-size: 11px; }
+
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #messages { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  .msg { display: flex; margin-bottom: 16px; }
+  .msg.user { justify-content: flex-end; }
+  .bubble {
+    max-width: 76%; padding: 12px 14px; border-radius: 12px; line-height: 1.65;
+    font-size: 14px; white-space: pre-wrap; word-break: break-word;
+    background: var(--panel); box-shadow: 0 1px 4px rgba(20,40,80,.08);
+  }
+  .msg.user .bubble { background: var(--brand); color: #fff; box-shadow: none; }
+  .msg.system .bubble { background: #fff9e6; border: 1px solid #f2e0a8; }
+  .meta { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+
+  .card {
+    margin-top: 10px; border: 1px solid var(--line); border-radius: 10px;
+    background: #fff; overflow: hidden;
+  }
+  .card > header {
+    background: #f5f8ff; color: var(--text); padding: 8px 12px; font-size: 13px;
+    font-weight: 600; box-shadow: none; display: flex; align-items: center; gap: 8px;
+  }
+  .card .body { padding: 12px; font-size: 13px; }
+  .kv { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+  .kv div { background: #f7f9fd; border-radius: 8px; padding: 8px 12px; min-width: 90px; }
+  .kv span { display: block; font-size: 11px; color: var(--muted); }
+  .kv b { font-size: 17px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: left; vertical-align: top; }
+  th { background: #fafbfe; color: var(--muted); font-weight: 600; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+  .tag.ok { background: #e6f7f0; color: var(--ok); }
+  .tag.no { background: #fdecec; color: var(--err); }
+  .bar { height: 6px; background: #eef1f7; border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--brand); }
+  .file-link {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
+    font-size: 13px; color: var(--brand); text-decoration: none;
+  }
+  .file-link:hover { text-decoration: underline; }
+  ul.clean { margin: 6px 0 0; padding-left: 18px; }
+  ul.clean li { margin-bottom: 4px; }
+
+  footer { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 24px; }
+  .chips { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12px; padding: 3px 9px; border-radius: 12px; background: #eef3ff;
+    color: var(--brand-dark); border: 1px solid #d8e4ff; cursor: pointer;
+  }
+  .chip.attach { background: #eafaf3; border-color: #cdece0; color: #12805c; }
+  .input-row { display: flex; gap: 10px; align-items: flex-end; }
+  textarea {
+    flex: 1; resize: none; border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; font-size: 14px; font-family: inherit; min-height: 46px;
+    max-height: 140px; outline: none;
+  }
+  textarea:focus { border-color: var(--brand); }
+  .send {
+    background: var(--brand); color: #fff; border: none; border-radius: 10px;
+    padding: 12px 22px; font-size: 14px; cursor: pointer;
+  }
+  .send:disabled { background: #a9bde6; cursor: not-allowed; }
+  .hidden { display: none !important; }
+  .pipe { font-size: 12px; color: var(--muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>智学</h1>
+  <div class="sub">文档生成 · 出题 · 批改 · 学情分析 四 Agent 协同</div>
+  <div class="spacer"></div>
+  <label class="sub">当前学生</label>
+  <select id="student"></select>
+  <button id="refresh">刷新状态</button>
+  <button id="clear">清空会话</button>
+</header>
+
+<div class="layout">
+  <aside>
+    <h3>Agent 状态</h3>
+    <div id="agents"></div>
+    <h3 style="margin-top:18px">检索通道</h3>
+    <div id="retrieval" class="agent-row">加载中…</div>
+    <h3 style="margin-top:18px">提示</h3>
+    <div class="agent-row" style="display:block;line-height:1.7">
+      例：<br>
+      · 给 Python 装饰器出 3 道题<br>
+      · 批改 S00001 的 HW00001<br>
+      · 分析一下 S00001 的学情<br>
+      · 生成装饰器的学习计划<br>
+      · 装饰器为什么会失效？
+    </div>
+  </aside>
+
+  <main>
+    <div id="messages"></div>
+    <footer>
+      <div class="chips" id="chips">
+        <span class="chip" data-q="给 Python 装饰器出 3 道题">出题</span>
+        <span class="chip" data-q="批改 S00001 的 HW00001">批改作业</span>
+        <span class="chip" data-q="分析一下 S00001 的学情">学情分析</span>
+        <span class="chip" data-q="生成装饰器的学习计划">生成学习计划</span>
+        <span class="chip" data-q="解释一下 Java 线程池的核心参数">课本答疑</span>
+        <span class="chip attach" id="uploadBtn">上传答题卡</span>
+        <span class="chip attach hidden" id="attachChip"></span>
+      </div>
+      <div class="input-row">
+        <textarea id="input" placeholder="输入问题，Enter 发送，Shift+Enter 换行"></textarea>
+        <button class="send" id="send">发送</button>
+      </div>
+      <div class="pipe" id="pipe"></div>
+    </footer>
+  </main>
+</div>
+
+<script>
+const state = { sessionId: null, studentId: "", upload: null, busy: false };
+const $ = (id) => document.getElementById(id);
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function addMessage(role, html, meta) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + role;
+  wrap.innerHTML = `<div class="bubble">${html}${meta ? `<div class="meta">${esc(meta)}</div>` : ""}</div>`;
+  $("messages").appendChild(wrap);
+  $("messages").scrollTop = $("messages").scrollHeight;
+  return wrap.querySelector(".bubble");
+}
+
+/* ---------------- 卡片渲染 ---------------- */
+function renderCard(card) {
+  if (card.type === "grading") {
+    const rows = (card.items || []).map(it => `
+      <tr>
+        <td>${esc(it.stem)}</td>
+        <td>${esc(it.student_answer) || "—"}</td>
+        <td>${esc(it.std_answer)}</td>
+        <td>${it.score}/${it.full_score}</td>
+        <td><span class="tag ${it.is_correct ? "ok" : "no"}">${it.is_correct ? "正确" : "错误"}</span></td>
+        <td>${esc(it.comment || "")}</td>
+      </tr>`).join("");
+    return `<div class="card"><header>📝 批改结果</header><div class="body">
+      <div class="kv">
+        <div><span>得分</span><b>${card.score}</b></div>
+        <div><span>满分</span><b>${card.full_score}</b></div>
+        <div><span>得分率</span><b>${Math.round((card.rate || 0) * 100)}%</b></div>
+      </div>
+      <table><thead><tr><th>题目</th><th>学生作答</th><th>参考答案</th><th>得分</th><th>判定</th><th>评语</th></tr></thead>
+      <tbody>${rows}</tbody></table></div></div>`;
+  }
+
+  if (card.type === "analysis") {
+    const ov = card.overview || {};
+    const weak = (card.weak_points || []).map(w => `
+      <li>${esc(w.name)}（${esc(w.subject)}）
+        <div class="bar" style="margin-top:4px"><i style="width:${Math.round((w.rate || 0) * 100)}%"></i></div>
+        <small style="color:var(--muted)">掌握度 ${Math.round((w.rate || 0) * 100)}%</small>
+      </li>`).join("");
+    const trend = (card.trend || []).map(t => `<li>${esc(t.title || t.homework_id)}：${Math.round((t.rate || 0) * 100)}%</li>`).join("");
+    const cmp = card.comparison || {};
+    return `<div class="card"><header>📊 学情画像</header><div class="body">
+      <div class="kv">
+        <div><span>作业次数</span><b>${ov.homework_count ?? 0}</b></div>
+        <div><span>平均得分率</span><b>${Math.round((ov.avg_rate || 0) * 100)}%</b></div>
+        <div><span>班级平均</span><b>${Math.round((cmp.class_rate || 0) * 100)}%</b></div>
+        <div><span>个人</span><b>${Math.round((cmp.my_rate || 0) * 100)}%</b></div>
+      </div>
+      <b>薄弱知识点</b><ul class="clean">${weak || "<li>暂无数据</li>"}</ul>
+      ${trend ? `<b style="display:block;margin-top:10px">成绩趋势</b><ul class="clean">${trend}</ul>` : ""}
+      </div></div>`;
+  }
+
+  if (card.type === "questions") {
+    const target = card.homework
+      ? `已下发作业：<b>${esc(card.homework.homework_id)}</b>（${card.homework.question_count} 题 / 满分 ${card.homework.full_score}）`
+      : (card.document ? `试卷已导出` : "");
+    const files = card.document
+      ? `<a class="file-link" href="/api/files/${encodeURIComponent(card.document.filename)}">📄 下载 ${esc(card.document.filename)}</a>` : "";
+    const qs = (card.questions || []).map((q, i) => `
+      <li><b>${i + 1}. [${esc(q.q_type)}/难度${q.difficulty}]</b> ${esc(q.stem)}
+        ${(q.options && q.options.length) ? `<div style="color:var(--muted)">${q.options.map(o => esc(o)).join("<br>")}</div>` : ""}
+        <div style="color:var(--ok)">参考答案：${esc(q.answer)}</div>
+      </li>`).join("");
+    return `<div class="card"><header>📚 试题清单</header><div class="body">
+      <div style="margin-bottom:8px">${target}</div>
+      <ul class="clean">${qs}</ul>${files}</div></div>`;
+  }
+
+  if (card.type === "document") {
+    const c = card.content || {};
+    const refs = (card.references || []).map(r => `<li>${esc(r.title)}（匹配度 ${r.score}）</li>`).join("");
+    const files = (card.files || []).map(f =>
+      `<a class="file-link" href="${f.url || "/api/files/" + encodeURIComponent(f.name)}">📄 下载 ${esc(f.name)}</a>`).join("<br>");
+    return `<div class="card"><header>📄 生成文档：${esc(card.topic || "")}</header><div class="body">
+      ${c.explanation ? `<p><b>概念讲解</b><br>${esc(c.explanation)}</p>` : ""}
+      ${c.example ? `<p><b>典型示例</b><br>${esc(c.example)}</p>` : ""}
+      ${c.exercises ? `<p><b>课堂练习</b><br>${esc(c.exercises)}</p>` : ""}
+      ${c.pitfall ? `<p><b>易错提醒</b><br>${esc(c.pitfall)}</p>` : ""}
+      ${refs ? `<b>参考课本片段</b><ul class="clean">${refs}</ul>` : ""}
+      ${files}</div></div>`;
+  }
+
+  if (card.type === "info") {
+    return `<div class="card"><header>ℹ️ ${esc(card.title)}</header><div class="body">${esc(card.text)}</div></div>`;
+  }
+  if (card.type === "qa") {
+    const refs = (card.references || []).map((r, i) => `
+      <li>[${i + 1}] <b>${esc(r.title)}</b>
+        <span style="color:var(--muted)">（${esc(r.chapter || "")}｜匹配度 ${r.score}）</span>
+        <div style="color:var(--muted);margin-top:2px">${esc(r.content)}…</div>
+      </li>`).join("");
+    return `<div class="card"><header>📖 课本依据</header><div class="body">
+      <ul class="clean">${refs || "<li>无命中片段</li>"}</ul>
+      <div class="meta">检索通道：${esc(card.retrieval_backend || "-")}</div>
+      </div></div>`;
+  }
+  return "";
+}
+
+/* ---------------- SSE 解析 ---------------- */
+async function send(message) {
+  if (state.busy || !message.trim()) return;
+  state.busy = true;
+  $("send").disabled = true;
+  $("pipe").textContent = "";
+  addMessage("user", esc(message));
+
+  const body = {
+    message,
+    session_id: state.sessionId,
+    student_id: state.studentId || null,
+    upload_paths: state.upload ? [state.upload.path] : []
+  };
+
+  let bubble = null, text = "", started = false;
+
+  try {
+    const resp = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop();
+      for (const block of blocks) {
+        const evMatch = block.match(/^event: (.+)$/m);
+        const dataMatch = block.match(/^data: (.+)$/m);
+        if (!evMatch || !dataMatch) continue;
+        const event = evMatch[1].trim();
+        const payload = JSON.parse(dataMatch[1]);
+
+        if (event === "route") {
+          state.sessionId = payload.session_id;
+          $("pipe").textContent = `意图：${payload.intent}` +
+            (payload.missing.length ? ` ｜ 缺少：${payload.missing.join("、")}` : "");
+        } else if (event === "agent") {
+          $("pipe").textContent += ` ｜ 派发：${payload.agent}`;
+        } else if (event === "token") {
+          if (!started) { bubble = addMessage("system", ""); started = true; }
+          text += payload.text;
+          bubble.innerHTML = esc(text);
+          $("messages").scrollTop = $("messages").scrollHeight;
+        } else if (event === "card") {
+          if (!bubble) { bubble = addMessage("system", ""); started = true; }
+          bubble.insertAdjacentHTML("beforeend", renderCard(payload));
+          $("messages").scrollTop = $("messages").scrollHeight;
+        } else if (event === "end") {
+          state.sessionId = payload.session_id || state.sessionId;
+          $("pipe").textContent += ` ｜ 耗时 ${payload.elapsed}s`;
+        }
+      }
+    }
+  } catch (err) {
+    addMessage("system", `请求失败：${esc(err.message)}`);
+  } finally {
+    state.busy = false;
+    $("send").disabled = false;
+    state.upload = null;
+    $("attachChip").classList.add("hidden");
+  }
+}
+
+/* ---------------- 状态面板 ---------------- */
+async function loadStudents() {
+  try {
+    const data = await (await fetch("/api/students")).json();
+    const sel = $("student");
+    sel.innerHTML = `<option value="">（不指定学生）</option>` +
+      data.students.map(s => `<option value="${s.student_id}">${s.student_id} ${s.name}</option>`).join("");
+    if (data.students.length) { sel.value = data.students[0].student_id; state.studentId = sel.value; }
+  } catch (e) { console.warn(e); }
+}
+
+async function loadStatus() {
+  try {
+    const data = await (await fetch("/api/agents")).json();
+    $("agents").innerHTML = data.agents.map(a => `
+      <div class="agent-row">
+        <span class="dot ${a.online ? "on" : ""}"></span>
+        <span>${esc(a.name)}</span>
+        <small>${esc(a.url.replace("http://", ""))}</small>
+      </div>`).join("") +
+      `<div class="agent-row" style="background:#fff;font-size:11.5px;color:var(--muted)">
+         通道：${esc(data.network_transport)} ｜ 工具：${esc(data.tool_transport)}</div>`;
+  } catch (e) { $("agents").textContent = "无法获取状态"; }
+
+  try {
+    const r = await (await fetch("/api/retrieval")).json();
+    $("retrieval").innerHTML =
+      `<span class="dot ${r.backend === "milvus" ? "on" : ""}"></span>检索后端：${esc(r.backend)}
+       <small>${esc(r.milvus_uri)}</small>`;
+  } catch (e) { /* ignore */ }
+}
+
+/* ---------------- 事件绑定 ---------------- */
+$("send").onclick = () => {
+  const v = $("input").value;
+  $("input").value = "";
+  send(v);
+};
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    $("send").click();
+  }
+});
+$("chips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip[data-q]");
+  if (chip) send(chip.dataset.q);
+});
+$("student").onchange = (e) => { state.studentId = e.target.value; };
+$("refresh").onclick = loadStatus;
+$("clear").onclick = async () => {
+  if (!state.sessionId) return;
+  await fetch(`/api/session/${state.sessionId}`, { method: "DELETE" });
+  $("messages").innerHTML = "";
+  state.sessionId = null;
+  addMessage("system", "会话已清空。");
+};
+$("uploadBtn").onclick = () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*,.txt";
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/upload", { method: "POST", body: fd });
+    if (!res.ok) { alert("上传失败"); return; }
+    state.upload = await res.json();
+    const chip = $("attachChip");
+    chip.classList.remove("hidden");
+    chip.textContent = "已附加：" + state.upload.filename;
+  };
+  input.click();
+};
+
+addMessage("system",
+  "你好，我是 <b>智学</b>。我可以：<br>· 出题 / 组卷 · 批改作业 · 分析学情 · 生成讲义与学习计划 · 课本答疑<br>左侧可以看到四个 Agent 的在线状态。");
+loadStudents();
+loadStatus();
+setInterval(loadStatus, 20000);
+</script>
+</body>
+</html>

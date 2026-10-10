@@ -1,0 +1,12 @@
+# 智学新增依赖
+# 其余依赖（fastapi / uvicorn / pymysql / redis / pymilvus / openai /
+# python-docx / Pillow / rank-bm25 / sentence-transformers ...）复用
+# 项目根目录已有的 requirements-windows.txt。
+#
+# 安装： pip install -r requirements-zhixue.txt
+#
+# 注意：fastmcp 4.x 会要求 mcp>=2 与较新的 starlette。
+# 若与本机 fastapi 版本冲突，请把 fastapi 升到 >=0.140：
+#   pip install -U "fastapi>=0.140"
+fastmcp>=4.1.0
+a2a-sdk>=1.2.2
